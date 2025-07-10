@@ -1,34 +1,39 @@
-# 阶段 1：构建 microsocks
-FROM alpine:3.17 AS builder
+# 终极版 Dockerfile: 使用本地 GOST 文件 + 修正 WGCF 安装
 
-RUN apk update -f \  
-  && apk --no-cache add -f \  
-  git gcc musl-dev make
-
-RUN git clone https://github.com/rofl0r/microsocks.git \
-  && cd microsocks \
-  && make \
-  && make install
-
-# 阶段 2：创建最终镜像
 FROM alpine:3.17
 
-COPY --from=builder /usr/local/bin/microsocks /usr/local/bin/microsocks
+# 安装基础依赖
+RUN apk update -f \
+  && apk --no-cache add -f \
+  curl ca-certificates \
+  iproute2 net-tools iptables \
+  wireguard-tools openresolv tar \
+  && rm -rf /var/cache/apk/*
 
-RUN apk update -f \  
-  && apk --no-cache add -f \  
-  curl ca-certificates \  
-  iproute2 net-tools iptables \  
-  wireguard-tools openresolv \  
-  && rm -rf /var/cache/apk/*  
+# --- GOST 安装 (从本地文件) ---
+# 从构建目录复制您手动下载并重命名的 .tar.gz 文件
+COPY gost-linux-arm64.tar.gz /tmp/gost.tar.gz
 
-RUN curl -fsSL git.io/wgcf.sh | bash && mkdir -p /wgcf  
+# 解压、移动并清理
+RUN set -ex \
+    && cd /tmp \
+    && tar -xf gost.tar.gz \
+    && mv gost /usr/local/bin/gost \
+    && chmod +x /usr/local/bin/gost \
+    && rm -rf /tmp/*
 
-WORKDIR /wgcf  
+# --- WGCF 安装 (已修正) ---
+# 安装脚本会自动处理移动，所以我们不再需要 "&& mv ..."
+RUN curl -fsSL git.io/wgcf.sh | bash
 
-VOLUME /wgcf  
+# --- 后续步骤不变 ---
+# 设置工作目录并挂载卷
+WORKDIR /wgcf
+VOLUME /wgcf
 
-COPY entry.sh /entry.sh  
-RUN chmod +x /entry.sh  
+# 复制并授权启动脚本
+COPY entry.sh /entry.sh
+RUN chmod +x /entry.sh
 
+# 设置入口点
 ENTRYPOINT ["/entry.sh"]
